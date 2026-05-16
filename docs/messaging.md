@@ -95,9 +95,8 @@ pub fn main(init: std.process.Init) !void {
     response.id.dump();
     std.debug.print("\n", .{});
 
-    if (response.result) |result| {
-        debugJsonValue("python result", result);
-    }
+    const json = try response.asJson();
+    debugJsonValue("python result", json.result);
 
     try client.closeInput();
     _ = try client.wait();
@@ -376,6 +375,9 @@ Python reads that response from `child.stdout.readline()`.
   request or notification.
 - `ParsedMessage.asResponse()` validates and views the message as a JSON-RPC
   response.
+- `Response.asJson()` returns a success-only response view with `id` and
+  non-optional `result`.
+- `Response.asText()` returns the string result for successful text responses.
 - `Connection.sendRequest(...)` writes a request and flushes the frame.
 - `Connection.sendNotification(...)` writes a notification and flushes the
   frame.

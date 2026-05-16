@@ -36,6 +36,12 @@ var message = try conn.readMessage();
 defer message.deinit();
 
 const response = try message.asResponse();
+const json = try response.asJson();
+const result = json.result.object.get("message").?.string;
+std.debug.print("message: {s}\n", .{result});
+
+// For string results:
+// const text_response = try response.asText();
 ```
 
 Applications that already own the streams can use `rpc.Connection` directly with `*std.Io.Reader` and `*std.Io.Writer`.
@@ -67,5 +73,5 @@ zig fetch --save https://github.com/NexWan/zig-rpc/archive/refs/tags/<VERSION>.t
 For example:
 
 ```sh
-zig fetch --save https://github.com/NexWan/zig-rpc/archive/refs/tags/v0.1.0.tar.gz
+zig fetch --save https://github.com/NexWan/zig-rpc/archive/refs/tags/v0.2.0.tar.gz
 ```

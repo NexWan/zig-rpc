@@ -78,8 +78,6 @@ pub fn main(init: std.process.Init) !void {
     var message = try conn.readMessage();
     defer message.deinit();
 
-    std.debug.print("received from python: {any}\n", .{message.value()});
-
     const response = try message.asResponse();
     if (response.rpc_error) |err| {
         std.debug.print("python returned JSON-RPC error {d}: {s}\n", .{
@@ -89,16 +87,70 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
-    std.debug.print("python result: {any}\n", .{response.result.?});
+    std.debug.print("received response JSON: ", .{});
+    message.value().dump();
+    std.debug.print("\n", .{});
+
+    std.debug.print("received response id: ", .{});
+    response.id.dump();
+    std.debug.print("\n", .{});
+
+    const json = try response.asJson();
+    debugJsonValue("python result", json.result);
 
     try client.closeInput();
     _ = try client.wait();
 }
+
+fn debugJsonValue(label: []const u8, value: std.json.Value) void {
+    std.debug.print("{s} JSON: ", .{label});
+    value.dump();
+    std.debug.print("\n", .{});
+
+    switch (value) {
+        .null => std.debug.print("{s}: null\n", .{label}),
+        .bool => |item| std.debug.print("{s}: {}\n", .{ label, item }),
+        .integer => |item| std.debug.print("{s}: {d}\n", .{ label, item }),
+        .float => |item| std.debug.print("{s}: {d}\n", .{ label, item }),
+        .number_string => |item| std.debug.print("{s}: {s}\n", .{ label, item }),
+        .string => |item| std.debug.print("{s}: {s}\n", .{ label, item }),
+        .array => |items| std.debug.print("{s}: array with {d} item(s)\n", .{
+            label,
+            items.items.len,
+        }),
+        .object => |object| {
+            std.debug.print("{s}: object\n", .{label});
+            if (object.get("message")) |item| debugJsonValue("  message", item);
+            if (object.get("language")) |item| debugJsonValue("  language", item);
+            if (object.get("ok")) |item| debugJsonValue("  ok", item);
+        },
+        else => std.debug.print("{s}: {any}\n", .{ label, value }),
+    }
+}
 ```
 
-Example stderr output from the `std.debug.print` calls will look like a Zig view
-of the parsed JSON value. The protocol response itself still stays on stdout as
-newline-delimited JSON.
+`std.json.Value` is a tagged union. Printing it directly with `{any}` shows
+Zig's internal representation of that value, which is useful for debugging the
+parser but noisy for application logs. Switch on the JSON tag and use formatters
+like `{s}` for strings when you want readable output. Use `value.dump()` when
+you want to see the parsed value encoded back as JSON.
+
+For a Python response like:
+
+```json
+{"jsonrpc":"2.0","result":"Hello, world! from Python","id":1}
+```
+
+the readable stderr output is:
+
+```text
+received response JSON: {"jsonrpc":"2.0","result":"Hello, world! from Python","id":1}
+received response id: 1
+python result JSON: "Hello, world! from Python"
+python result: Hello, world! from Python
+```
+
+The protocol response itself still stays on stdout as newline-delimited JSON.
 
 The request written by Zig is:
 
@@ -203,12 +255,12 @@ pub fn main(init: std.process.Init) !void {
         };
         defer message.deinit();
 
-        std.debug.print("received from python: {any}\n", .{message.value()});
-
         const request = message.asRequest() catch {
             try conn.sendPredefinedError(rpc.Id.null, .invalid_request);
             continue;
         };
+
+        std.debug.print("received method: {s}\n", .{request.method});
 
         if (request.isNotification()) {
             std.debug.print("notification method={s}\n", .{request.method});
@@ -323,6 +375,9 @@ Python reads that response from `child.stdout.readline()`.
   request or notification.
 - `ParsedMessage.asResponse()` validates and views the message as a JSON-RPC
   response.
+- `Response.asJson()` returns a success-only response view with `id` and
+  non-optional `result`.
+- `Response.asText()` returns the string result for successful text responses.
 - `Connection.sendRequest(...)` writes a request and flushes the frame.
 - `Connection.sendNotification(...)` writes a notification and flushes the
   frame.

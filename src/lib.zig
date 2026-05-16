@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const version = "0.1.0";
+pub const version = "0.2.0";
 pub const JsonValue = std.json.Value;
 
 pub const ErrorCode = enum(i64) {
@@ -52,6 +52,8 @@ pub const ProtocolError = error{
     ResponseMissingId,
     ResponseHasResultAndError,
     ResponseMissingResultOrError,
+    ResponseIsError,
+    ResponseResultNotText,
 };
 
 pub const Request = struct {
@@ -70,6 +72,11 @@ pub const RpcErrorView = struct {
     data: ?JsonValue,
 };
 
+pub const ResponseJson = struct {
+    id: JsonValue,
+    result: JsonValue,
+};
+
 pub const Response = struct {
     id: JsonValue,
     result: ?JsonValue,
@@ -77,6 +84,23 @@ pub const Response = struct {
 
     pub fn isError(self: Response) bool {
         return self.rpc_error != null;
+    }
+
+    pub fn asJson(self: Response) ProtocolError!ResponseJson {
+        if (self.rpc_error != null) return error.ResponseIsError;
+
+        return .{
+            .id = self.id,
+            .result = self.result orelse return error.ResponseMissingResultOrError,
+        };
+    }
+
+    pub fn asText(self: Response) ProtocolError![]const u8 {
+        const json = try self.asJson();
+        return switch (json.result) {
+            .string => |text| text,
+            else => error.ResponseResultNotText,
+        };
     }
 };
 
@@ -497,7 +521,49 @@ test "read response parses owned JSON values" {
 
     const response = try message.asResponse();
     try std.testing.expectEqualStrings("abc", response.id.string);
-    try std.testing.expect(response.result.?.object.get("ok").?.bool);
+    const json = try response.asJson();
+    try std.testing.expectEqualStrings("abc", json.id.string);
+    try std.testing.expect(json.result.object.get("ok").?.bool);
+}
+
+test "response accessors expose JSON and text results" {
+    var parsed_object = try std.json.parseFromSlice(JsonValue, std.testing.allocator, "{\"jsonrpc\":\"2.0\",\"result\":{\"id\":99,\"result\":\"ok\"},\"id\":\"abc\"}", .{
+        .allocate = .alloc_always,
+    });
+    defer parsed_object.deinit();
+
+    const object_response = try parseResponse(parsed_object.value);
+    const json = try object_response.asJson();
+    try std.testing.expectEqualStrings("abc", json.id.string);
+    try std.testing.expectEqual(@as(i64, 99), json.result.object.get("id").?.integer);
+    try std.testing.expectEqualStrings("ok", json.result.object.get("result").?.string);
+
+    var parsed_text = try std.json.parseFromSlice(JsonValue, std.testing.allocator, "{\"jsonrpc\":\"2.0\",\"result\":\"plain text\",\"id\":1}", .{
+        .allocate = .alloc_always,
+    });
+    defer parsed_text.deinit();
+
+    const text_response = try parseResponse(parsed_text.value);
+    try std.testing.expectEqualStrings("plain text", try text_response.asText());
+}
+
+test "response accessors reject error and non-text results" {
+    var parsed_error = try std.json.parseFromSlice(JsonValue, std.testing.allocator, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":1}", .{
+        .allocate = .alloc_always,
+    });
+    defer parsed_error.deinit();
+
+    const error_response = try parseResponse(parsed_error.value);
+    try std.testing.expectError(error.ResponseIsError, error_response.asJson());
+    try std.testing.expectError(error.ResponseIsError, error_response.asText());
+
+    var parsed_number = try std.json.parseFromSlice(JsonValue, std.testing.allocator, "{\"jsonrpc\":\"2.0\",\"result\":42,\"id\":1}", .{
+        .allocate = .alloc_always,
+    });
+    defer parsed_number.deinit();
+
+    const number_response = try parseResponse(parsed_number.value);
+    try std.testing.expectError(error.ResponseResultNotText, number_response.asText());
 }
 
 test "request validation rejects non-structured params and reserved method names" {

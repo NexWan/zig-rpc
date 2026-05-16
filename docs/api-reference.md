@@ -20,7 +20,7 @@ For the transport-level flow between processes, see
 ### `version`
 
 ```zig
-pub const version = "0.1.0";
+pub const version = "0.2.0";
 ```
 
 Current package version string.
@@ -96,6 +96,8 @@ pub const ProtocolError = error{
     ResponseMissingId,
     ResponseHasResultAndError,
     ResponseMissingResultOrError,
+    ResponseIsError,
+    ResponseResultNotText,
 };
 ```
 
@@ -142,6 +144,18 @@ pub const RpcErrorView = struct {
 
 View of a JSON-RPC response error object.
 
+### `ResponseJson`
+
+```zig
+pub const ResponseJson = struct {
+    id: JsonValue,
+    result: JsonValue,
+};
+```
+
+Success-only response view returned by `Response.asJson()`. It exposes the
+response `id` and a non-optional `result`.
+
 ### `Response`
 
 ```zig
@@ -151,6 +165,8 @@ pub const Response = struct {
     rpc_error: ?RpcErrorView,
 
     pub fn isError(self: Response) bool;
+    pub fn asJson(self: Response) ProtocolError!ResponseJson;
+    pub fn asText(self: Response) ProtocolError![]const u8;
 };
 ```
 
@@ -158,6 +174,13 @@ Represents a JSON-RPC response. A valid response has exactly one of `result` or
 `rpc_error`.
 
 `isError()` returns `true` when `rpc_error != null`.
+
+`asJson()` returns a success-only `ResponseJson` view. It returns
+`error.ResponseIsError` when the response is a JSON-RPC error.
+
+`asText()` returns the string `result` for successful text responses. It returns
+`error.ResponseIsError` for JSON-RPC errors and `error.ResponseResultNotText`
+when the successful result is not a JSON string.
 
 ### `ParsedMessage`
 
@@ -185,13 +208,36 @@ Example:
 var message = try conn.readMessage();
 defer message.deinit();
 
-std.debug.print("raw message: {any}\n", .{message.value()});
-
 const response = try message.asResponse();
 if (response.isError()) {
     std.debug.print("rpc error: {s}\n", .{response.rpc_error.?.message});
+} else {
+    const json = try response.asJson();
+    std.debug.print("result JSON: ", .{});
+    json.result.dump();
+    std.debug.print("\n", .{});
+
+    switch (json.result) {
+        .string => |text| std.debug.print("result: {s}\n", .{text}),
+        .integer => |number| std.debug.print("result: {d}\n", .{number}),
+        .bool => |ok| std.debug.print("result: {}\n", .{ok}),
+        else => std.debug.print("result value: {any}\n", .{json.result}),
+    }
 }
 ```
+
+For string responses, use `asText()` instead of switching on `std.json.Value`:
+
+```zig
+const response = try message.asResponse();
+const text_response = try response.asText();
+std.debug.print("result: {s}\n", .{text_response});
+```
+
+`{any}` prints the internal `std.json.Value` representation. For user-facing
+debug output, switch on the value tag and use the matching formatter, such as
+`{s}` for `.string`. To print the parsed value as JSON, call
+`result.dump()`.
 
 ## Connection
 

@@ -1,0 +1,14 @@
+.{
+    .name = .zig_rpc,
+    .version = "0.1.0",
+    .fingerprint = 0xee024f0ab68e023e, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{},
+    .paths = .{
+        "README.md",
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "test",
+    },
+}

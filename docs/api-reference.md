@@ -185,13 +185,27 @@ Example:
 var message = try conn.readMessage();
 defer message.deinit();
 
-std.debug.print("raw message: {any}\n", .{message.value()});
-
 const response = try message.asResponse();
 if (response.isError()) {
     std.debug.print("rpc error: {s}\n", .{response.rpc_error.?.message});
+} else if (response.result) |result| {
+    std.debug.print("result JSON: ", .{});
+    result.dump();
+    std.debug.print("\n", .{});
+
+    switch (result) {
+        .string => |text| std.debug.print("result: {s}\n", .{text}),
+        .integer => |number| std.debug.print("result: {d}\n", .{number}),
+        .bool => |ok| std.debug.print("result: {}\n", .{ok}),
+        else => std.debug.print("result value: {any}\n", .{result}),
+    }
 }
 ```
+
+`{any}` prints the internal `std.json.Value` representation. For user-facing
+debug output, switch on the value tag and use the matching formatter, such as
+`{s}` for `.string`. To print the parsed value as JSON, call
+`result.dump()`.
 
 ## Connection
 

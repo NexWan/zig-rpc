@@ -40,6 +40,14 @@ const response = try message.asResponse();
 
 Applications that already own the streams can use `rpc.Connection` directly with `*std.Io.Reader` and `*std.Io.Writer`.
 
+## Documentation
+
+- [Messaging Guide](docs/messaging.md): how request, response, and notification
+  frames move between Zig and Python processes, including `std.debug.print()`
+  examples.
+- [API Reference](docs/api-reference.md): public types, method signatures,
+  parameters, emitted payload shapes, and validation rules.
+
 ## Validate
 
 ```sh
